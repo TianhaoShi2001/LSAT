@@ -293,6 +293,39 @@ def train(
     cold_test_data = csv_to_json(cold_test_df)
     warm_test_data = Dataset.from_list(warm_test_data)
     cold_test_data = Dataset.from_list(cold_test_data)
+    def tokenize(prompt, add_eos_token=True):
+        result = tokenizer(
+            prompt,
+            truncation=True,
+            max_length=cutoff_len,
+            padding=False,
+            return_tensors=None,
+        )
+        if (
+            result["input_ids"][-1] != tokenizer.eos_token_id
+            and len(result["input_ids"]) < cutoff_len
+            and add_eos_token
+        ):
+            result["input_ids"].append(tokenizer.eos_token_id)
+            result["attention_mask"].append(1)
+
+        result["labels"] = result["input_ids"].copy()
+        return result
+
+    def generate_and_tokenize_prompt(data_point):
+        full_prompt = generate_prompt(data_point)
+        tokenized_full_prompt = tokenize(full_prompt)
+        if not train_on_inputs:
+            user_prompt = generate_prompt({**data_point, "output": ""})
+            tokenized_user_prompt = tokenize(user_prompt, add_eos_token=False)
+            user_prompt_len = len(tokenized_user_prompt["input_ids"])
+
+            tokenized_full_prompt["labels"] = [
+                -100
+            ] * user_prompt_len + tokenized_full_prompt["labels"][
+                user_prompt_len:
+            ]  # could be sped up, probably
+        return tokenized_full_prompt
     warm_test_data = (warm_test_data.map(generate_and_tokenize_prompt))
     cold_test_data = (cold_test_data.map(generate_and_tokenize_prompt))
     if val_data_path.endswith(".json"):  
